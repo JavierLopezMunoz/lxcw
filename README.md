@@ -8,4 +8,4 @@
 
 ## Installation
 
-sudo pip install https://github.com/JavierLopezMunoz/lxcw.git
+sudo pip install https://github.com/JavierLopezMunoz/lxcw/archive/master.zip
