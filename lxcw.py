@@ -14,7 +14,7 @@ def cli():
 
 def _lxc_ip(name):
     return sp.check_output([
-        'sudo', 'lxc-info', '-n', name, '-iH']).strip()
+        'sudo', 'lxc-info', '--name', name, '-i']).strip()
 
 
 @click.command()
@@ -30,12 +30,11 @@ def ssh(name):
 @click.option('--hostname', default=None, multiple=True)
 def up(name, release, ip, hostname):
     try:
-        output = sp.check_output(
-            ['sudo', 'lxc-info', '-n', name, '-sH'])
+        sp.check_output(['sudo', 'lxc-info', '--name', name])
     except sp.CalledProcessError:
         user = os.environ['USER']
         packages = ['python', 'python-pip']
-        cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '-n', name, '--',
+        cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '--name', name, '--',
                '--bindhome', user, '--user', user, '--packages',
                ','.join(packages)]
         if release:
@@ -73,7 +72,7 @@ def up(name, release, ip, hostname):
                     ip, _hostname),
                 '--become'])
     finally:
-        sp.call(['sudo', 'lxc-start', '-n', name, '--daemon'])
+        sp.call(['sudo', 'lxc-start', '--name', name, '--daemon'])
 
 
 @click.command()
@@ -84,15 +83,15 @@ def ls():
 @click.command()
 @click.argument('name')
 def halt(name):
-    sp.call(['sudo', 'lxc-stop', '-n', name, '--nokill'])
+    sp.call(['sudo', 'lxc-stop', '--name', name, '--nokill'])
 
 
 @click.command()
 @click.argument('names', nargs=-1)
 def destroy(names):
     for name in names:
-        sp.call(['sudo', 'lxc-stop', '-n', name, '--nokill'])
-        sp.call(['sudo', 'lxc-destroy', '-n', name])
+        sp.call(['sudo', 'lxc-stop', '--name', name, '--nokill'])
+        sp.call(['sudo', 'lxc-destroy', '--name', name])
         sp.call(
             ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
              '-R', name])
