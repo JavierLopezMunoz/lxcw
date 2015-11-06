@@ -14,7 +14,7 @@ def cli():
 
 def _lxc_ip(name):
     return sp.check_output([
-        'sudo', 'lxc-info', '--name', name, '-i']).strip()
+        'sudo', 'lxc-info', '--name', name, '-i']).strip().split()[1]
 
 
 @click.command()
@@ -30,8 +30,14 @@ def ssh(name):
 @click.option('--hostname', default=None, multiple=True)
 def up(name, release, ip, hostname):
     try:
-        sp.check_output(['sudo', 'lxc-info', '--name', name])
+        outuput = sp.check_output(['sudo', 'lxc-info', '--name', name])
     except sp.CalledProcessError:
+        pass
+
+    message = ("doesn't exist"
+               if sp.check_output(['lsb_release', '-cs']) == 'precise'
+               else 'is not running')
+    if message in output:
         user = os.environ['USER']
         packages = ['python', 'python-pip']
         cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '--name', name, '--',
@@ -71,7 +77,7 @@ def up(name, release, ip, hostname):
                 'lineinfile', '-a', 'dest=/etc/hosts line="{0} {1}"'.format(
                     ip, _hostname),
                 '--become'])
-    finally:
+
         sp.call(['sudo', 'lxc-start', '--name', name, '--daemon'])
 
 
