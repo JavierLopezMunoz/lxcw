@@ -30,7 +30,7 @@ def ssh(name):
 @click.option('--hostname', default=None, multiple=True)
 def up(name, release, ip, hostname):
     try:
-        outuput = sp.check_output(['sudo', 'lxc-info', '--name', name])
+        output = sp.check_output(['sudo', 'lxc-info', '--name', name])
     except sp.CalledProcessError:
         pass
 
