@@ -34,9 +34,9 @@ def up(name, release, ip, hostname):
     except sp.CalledProcessError:
         pass
 
-    message = ("doesn't exist"
+    message = ('is not running'
                if sp.check_output(['lsb_release', '-cs']) == 'precise'
-               else 'is not running')
+               else "doesn't exist")
     if message in output:
         user = os.environ['USER']
         packages = ['python', 'python-pip']
