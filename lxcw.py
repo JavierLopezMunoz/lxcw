@@ -23,6 +23,9 @@ def ssh(name):
     os.execvp('ssh', ['ssh', name, '-l', os.environ['USER']])
 
 
+def _os_version():
+    sp.check_output(['lsb_release', '-cs'])
+
 @click.command()
 @click.argument('name')
 @click.option('--release', default=None)
@@ -32,58 +35,61 @@ def up(name, release, ip, hostname):
     try:
         output = sp.check_output(['sudo', 'lxc-info', '--name', name])
     except sp.CalledProcessError:
-        pass
-
-    message = ('is not running'
-               if sp.check_output(['lsb_release', '-cs']) == 'precise'
-               else "doesn't exist")
-    if message in output:
-        user = os.environ['USER']
-        packages = ['python', 'python-pip']
-        cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '--name', name, '--',
-               '--bindhome', user, '--user', user, '--packages',
-               ','.join(packages)]
-        if release:
-            cmd += ['--release', release]
-        sp.call(cmd)
-        sp.call([
-            'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-            'lineinfile', '-a',
-            'dest=/etc/default/lxc-net regexp="LXC_DHCP_CONFILE"'
-            ' line="LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc"',
-            '--become'])
-
-        if not ip:
-            while True:
-                ip = '10.0.3.{}'.format(random.randint(100, 256))
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    if sock.connect_ex((ip, 22)):
-                        break
-                finally:
-                    sock.close()
-        sp.call([
-            'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-            'lineinfile', '-a',
-            'dest=/etc/dnsmasq.d/lxc line="dhcp-host={},{}"'.format(name, ip),
-            '--become'])
-        sp.call(['sudo', 'service', 'lxc-net', 'restart'])
-
-        if not hostname:
-            hostname = (name,)
-        for _hostname in hostname:
+        output = None
+    finally:
+        message = (
+            'is not running' if  _os_version() == 'precise'
+            else "doesn't exist")
+        if not output or message in output:
+            user = os.environ['USER']
+            packages = ['python', 'python-pip']
+            cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '--name', name, '--',
+                   '--bindhome', user, '--user', user, '--packages',
+                   ','.join(packages)]
+            if release:
+                cmd += ['--release', release]
+            sp.call(cmd)
             sp.call([
                 'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-                'lineinfile', '-a', 'dest=/etc/hosts line="{0} {1}"'.format(
-                    ip, _hostname),
+                'lineinfile', '-a',
+                'dest=/etc/default/lxc-net regexp="LXC_DHCP_CONFILE"'
+                ' line="LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc"',
                 '--become'])
+
+            if not ip:
+                while True:
+                    ip = '10.0.3.{}'.format(random.randint(100, 256))
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        if sock.connect_ex((ip, 22)):
+                            break
+                    finally:
+                        sock.close()
+            sp.call([
+                'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
+                'lineinfile', '-a',
+                'dest=/etc/dnsmasq.d/lxc line="dhcp-host={},{}"'.format(name, ip),
+                '--become'])
+            sp.call(['sudo', 'service', 'lxc-net', 'restart'])
+
+            if not hostname:
+                hostname = (name,)
+            for _hostname in hostname:
+                sp.call([
+                    'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
+                    'lineinfile', '-a', 'dest=/etc/hosts line="{0} {1}"'.format(
+                        ip, _hostname),
+                    '--become'])
 
         sp.call(['sudo', 'lxc-start', '--name', name, '--daemon'])
 
 
 @click.command()
 def ls():
-    sp.call(['sudo', 'lxc-ls', '--fancy'])
+    cmd = ['sudo', 'lxc-ls']
+    if _os_version() != 'precise':
+        cmd += ['--fancy']
+    sp.call(cmd)
 
 
 @click.command()
