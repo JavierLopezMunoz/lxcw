@@ -42,7 +42,7 @@ def up(name, release, ip, hostname):
             else "doesn't exist")
         if not output or message in output:
             user = os.environ['USER']
-            packages = ['python', 'python-pip']
+            packages = ['python', 'python-pip', 'python-dev', 'build-essential']
             cmd = ['sudo', 'lxc-create', '-t', 'ubuntu', '--name', name, '--',
                    '--bindhome', user, '--user', user, '--packages',
                    ','.join(packages)]
