@@ -26,6 +26,11 @@ def ssh(name):
 def _os_version():
     sp.check_output(['lsb_release', '-cs'])
 
+def _ansible_local(module, argument):
+    sp.call([
+        'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
+        module, '-a', '"{}"'.fomart(argument), '--become', '--ask-become'])
+    
 @click.command()
 @click.argument('name')
 @click.option('--release', default=None)
@@ -49,12 +54,11 @@ def up(name, release, ip, hostname):
             if release:
                 cmd += ['--release', release]
             sp.call(cmd)
-            sp.call([
-                'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-                'lineinfile', '-a',
-                'dest=/etc/default/lxc-net regexp="LXC_DHCP_CONFILE"'
-                ' line="LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc"',
-                '--become'])
+
+            _ansible_local(
+                'lineinfile',
+                'dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE'
+                ' line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc')
 
             if not ip:
                 while True:
@@ -65,21 +69,17 @@ def up(name, release, ip, hostname):
                             break
                     finally:
                         sock.close()
-            sp.call([
-                'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-                'lineinfile', '-a',
-                'dest=/etc/dnsmasq.d/lxc line="dhcp-host={},{}"'.format(name, ip),
-                '--become'])
+            _ansible_local(
+                'lineinfile',
+                'dest=/etc/dnsmasq.d/lxc line=dhcp-host={},{}'.format(name, ip))
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
             if not hostname:
                 hostname = (name,)
             for _hostname in hostname:
-                sp.call([
-                    'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-                    'lineinfile', '-a', 'dest=/etc/hosts line="{0} {1}"'.format(
-                        ip, _hostname),
-                    '--become'])
+                _ansible_local(
+                    'lineinfile',
+                    'dest=/etc/hosts line=\'{0} {1}\''.format(ip, _hostname))
 
         sp.call(['sudo', 'lxc-start', '--name', name, '--daemon'])
 
@@ -107,11 +107,10 @@ def destroy(names):
         sp.call(
             ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
              '-R', name])
-        sp.call([
-            'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-            'lineinfile', '-a', 'dest=/etc/hosts state=absent'
-            ' regexp="10.0.3.[0-9]* {}"'.format(name),
-            '--become'])
+        _ansible_local(
+            'lineinfile',
+            'dest=/etc/hosts state=absent regexp=\'10.0.3.[0-9]* {}\''.format(
+                name))
 
 
 @click.command()
@@ -119,7 +118,7 @@ def destroy(names):
 @click.option('--playbook', '-p', type=click.Path(exists=True, dir_okay=False))
 def provision(name, playbook):
     sp.call([
-        'ansible-playbook', '-l', name, '-i', 'lxcw inventory', playbook])
+        'ansible-playbook', '-l', name, '-i', '"lxcw inventory"', playbook])
 
 
 @click.command()
