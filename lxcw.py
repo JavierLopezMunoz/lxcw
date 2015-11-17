@@ -26,17 +26,21 @@ def ssh(name):
 def _os_version():
     sp.check_output(['lsb_release', '-cs'])
 
-def _ansible_local(module, argument):
-    sp.call([
+def _ansible_local(module, argument, ask_become_pass):
+    cmd = [
         'ansible', 'all', '-i', 'localhost,', '-c', 'local', '-m',
-        module, '-a', '{}'.format(argument), '--become', '--ask-become'])
+        module, '-a', '{}'.format(argument), '--become']
+    if ask_become_pass:
+        cmd += ['--ask-become-pass']
+    sp.call(cmd)
 
 @click.command()
 @click.argument('name')
 @click.option('--release', default=None)
 @click.option('--ip',  default=None)
 @click.option('--hostname', default=None, multiple=True)
-def up(name, release, ip, hostname):
+@click.option('--ask-become-pass', default=False)
+def up(name, release, ip, hostname, ask_become_pass):
     try:
         output = sp.check_output(['sudo', 'lxc-info', '--name', name])
     except sp.CalledProcessError:
@@ -58,7 +62,8 @@ def up(name, release, ip, hostname):
             _ansible_local(
                 'lineinfile',
                 'dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE'
-                ' line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc')
+                ' line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc',
+                ask_become_pass)
 
             if not ip:
                 while True:
@@ -71,7 +76,8 @@ def up(name, release, ip, hostname):
                         sock.close()
             _ansible_local(
                 'lineinfile',
-                'dest=/etc/dnsmasq.d/lxc line=dhcp-host={},{}'.format(name, ip))
+                'dest=/etc/dnsmasq.d/lxc line=dhcp-host={},{}'.format(name, ip),
+                ask_become_pass)
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
             if not hostname:
@@ -79,7 +85,8 @@ def up(name, release, ip, hostname):
             for _hostname in hostname:
                 _ansible_local(
                     'lineinfile',
-                    'dest=/etc/hosts line=\'{0} {1}\''.format(ip, _hostname))
+                    'dest=/etc/hosts line=\'{0} {1}\''.format(ip, _hostname),
+                    ask_become_pass)
 
         sp.call(['sudo', 'lxc-start', '--name', name, '--daemon'])
 
@@ -100,7 +107,8 @@ def halt(name):
 
 @click.command()
 @click.argument('names', nargs=-1)
-def destroy(names):
+@click.option('--ask-become-pass', default=False)
+def destroy(names, ask_become_pass):
     for name in names:
         sp.call(['sudo', 'lxc-stop', '--name', name, '--nokill'])
         sp.call(['sudo', 'lxc-destroy', '--name', name])
@@ -110,7 +118,8 @@ def destroy(names):
         _ansible_local(
             'lineinfile',
             'dest=/etc/hosts regexp=\'10.0.3.[0-9]* {}\' state=absent'.format(
-                name))
+                name),
+            ask_become_pass)
 
 
 @click.command()
