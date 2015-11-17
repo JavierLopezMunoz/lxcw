@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='lxcw',
-    version='0.8',
+    version='0.9',
     py_modules=['lxcw'],
     install_requires=[
         'ansible',

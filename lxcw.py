@@ -28,9 +28,9 @@ def _os_version():
 
 def _ansible_local(module, argument):
     sp.call([
-        'ansible', 'all', '-i', '"localhost,"', '-c', 'local', '-m',
-        module, '-a', '"{}"'.fomart(argument), '--become', '--ask-become'])
-    
+        'ansible', 'all', '-i', 'localhost,', '-c', 'local', '-m',
+        module, '-a', '{}'.format(argument), '--become', '--ask-become'])
+
 @click.command()
 @click.argument('name')
 @click.option('--release', default=None)
@@ -109,7 +109,7 @@ def destroy(names):
              '-R', name])
         _ansible_local(
             'lineinfile',
-            'dest=/etc/hosts state=absent regexp=\'10.0.3.[0-9]* {}\''.format(
+            'dest=/etc/hosts regexp=\'10.0.3.[0-9]* {}\' state=absent'.format(
                 name))
 
 
