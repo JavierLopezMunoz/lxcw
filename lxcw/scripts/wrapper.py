@@ -70,7 +70,8 @@ def up(ctx, ask_become_pass):
             utils.ansible_local(
                 'lineinfile',
                 'dest=/etc/hosts line=\'{0} {1}\''.format(
-                    IP, ctx.obj['vm']['hostname']),
+                    IP, ' '.join([ctx.obj['vm']['hostname']]
+                                 + ctx.obj['vm']['aliases'])),
                 ask_become_pass)
 
             sp.call(
