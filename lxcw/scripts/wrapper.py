@@ -83,7 +83,7 @@ def up(ctx):
                 'dest=/etc/sudoers state=present regexp=\'^%sudo ALL\=\''
                 ' line=\'%sudo ALL=(ALL:ALL) NOPASSWD:ALL\''
                 ' validate=\'visudo -cf %s\'',
-                ctx.obj['ask_sudo_pass']=True)
+                ask_become_pass=True)
         else:
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname'],
