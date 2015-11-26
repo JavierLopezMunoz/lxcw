@@ -13,11 +13,13 @@ from .. import utils
 
 @click.group()
 @click.pass_context
-def cli(ctx):
+@click.option('--ask-sudo-pass', default=False, is_flag=True)
+def cli(ctx, ask_sudo_pass):
     if ctx.invoked_subcommand not in ('init', 'ls'):
         try:
             with open("lxcwfile.yml", 'r') as stream:
                 ctx.obj = yaml.load(stream)[0]
+                ctx.obj['ask_sudo_pass'] = ask_sudo_pass
         except IOError as err:
             click.secho('No \'lxcwfile.yml\' present', fg='red')
             sys.exit(1)
@@ -32,8 +34,7 @@ def ssh(ctx):
 
 @click.command()
 @click.pass_context
-@click.option('--ask-become-pass', default=False)
-def up(ctx, ask_become_pass):
+def up(ctx):
     try:
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
@@ -57,14 +58,14 @@ def up(ctx, ask_become_pass):
                 'lineinfile',
                 'dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE'
                 ' line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc',
-                ask_become_pass)
+                ctx.obj['ask_sudo_pass'])
 
             IP = utils.random_unused_ip()
             utils.ansible_local(
                 'lineinfile',
                 'dest=/etc/dnsmasq.d/lxc line=dhcp-host={},{}'.format(
                     ctx.obj['vm']['hostname'], IP),
-                ask_become_pass)
+                ctx.obj['ask_sudo_pass'])
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
             utils.ansible_local(
@@ -72,7 +73,7 @@ def up(ctx, ask_become_pass):
                 'dest=/etc/hosts line=\'{0} {1}\''.format(
                     IP, ' '.join([ctx.obj['vm']['hostname']]
                                  + ctx.obj['vm']['aliases'])),
-                ask_become_pass)
+                ctx.obj['ask_sudo_pass'])
 
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname'],
@@ -82,7 +83,7 @@ def up(ctx, ask_become_pass):
                 'dest=/etc/sudoers state=present regexp=\'^%sudo ALL\=\''
                 ' line=\'%sudo ALL=(ALL:ALL) NOPASSWD:ALL\''
                 ' validate=\'visudo -cf %s\'',
-                ask_become_pass=True)
+                ctx.obj['ask_sudo_pass']=True)
         else:
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname'],
@@ -106,8 +107,7 @@ def halt(ctx):
 
 @click.command()
 @click.pass_context
-@click.option('--ask-become-pass', default=False)
-def destroy(ctx, ask_become_pass):
+def destroy(ctx):
     sp.call(
         ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
     sp.call(['sudo', 'lxc-destroy', '--name', ctx.obj['vm']['hostname']])
@@ -118,7 +118,13 @@ def destroy(ctx, ask_become_pass):
         'lineinfile',
         'dest=/etc/hosts regexp=\'10.0.3.[0-9]* {}\' state=absent'.format(
             ctx.obj['vm']['hostname']),
-        ask_become_pass)
+        ctx.obj['ask_sudo_pass'])
+    utils.ansible_local(
+        'lineinfile',
+        'dest=/etc/dnsmasq.d/lxc regexp=\'dhcp-host={},10.0.3.[0-9]*\''
+        ' state=absent'.format(ctx.obj['vm']['hostname']),
+        ctx.obj['ask_sudo_pass'])
+    sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
 
 @click.command()
@@ -134,6 +140,8 @@ def provision(ctx):
     cmd += [
         os.path.join(os.getcwd(),
                      ctx.obj['vm']['provision']['ansible']['playbook'])]
+    if ctx.obj['ask_sudo_pass']:
+        cmd += ['--ask-become-pass']
     sp.call(cmd)
 
 
