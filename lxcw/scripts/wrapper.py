@@ -68,11 +68,13 @@ def up(ctx):
                 ctx.obj['ask_sudo_pass'])
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
+            hostnames = [ctx.obj['vm']['hostname']]
+            if 'aliases' in ctx.obj['vm']:
+                hostnames += ctx.obj['vm']['aliases']
             utils.ansible_local(
                 'lineinfile',
                 'dest=/etc/hosts line=\'{0} {1}\''.format(
-                    IP, ' '.join([ctx.obj['vm']['hostname']]
-                                 + ctx.obj['vm']['aliases'])),
+                    IP, ' '.join(hostnames)),
                 ctx.obj['ask_sudo_pass'])
 
             sp.call(
