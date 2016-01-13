@@ -36,6 +36,13 @@ def ssh(ctx):
 @click.pass_context
 def up(ctx):
     try:
+        # Add user to sudoers to allow run sudo commands without password
+        user = os.environ['USER']
+        utils.ansible_local(
+            'lineinfile',
+            'dest=/etc/sudoers state=present regexp=\'^%(user)s ALL\=\''
+            ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
+            True)
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
     except sp.CalledProcessError:
@@ -45,7 +52,7 @@ def up(ctx):
             'is not running' if utils.os_version() == 'precise'
             else "doesn't exist")
         if not output or message in output:
-            user = os.environ['USER']
+
             packages = [
                 'python', 'python-pip', 'python-dev', 'build-essential']
             cmd = ['sudo', 'lxc-create', '-t', 'ubuntu',
@@ -77,19 +84,17 @@ def up(ctx):
                     IP, ' '.join(hostnames)),
                 ctx.obj['ask_sudo_pass'])
 
-            sp.call(
-                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname'],
-                 '--daemon'])
-            utils.ansible(
-                IP, 'lineinfile',
-                'dest=/etc/sudoers state=present regexp=\'^%sudo ALL\=\''
-                ' line=\'%sudo ALL=(ALL:ALL) NOPASSWD:ALL\''
-                ' validate=\'visudo -cf %s\'', True)
+            sp.call(['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+
         else:
             sp.call(
-                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname'],
-                 '--daemon'])
-
+                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+        # Remove nopasswd user from sudoers
+        utils.ansible_local(
+            'lineinfile',
+            'dest=/etc/sudoers state=absent regexp=\'^%(user)s ALL\=\''
+            ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
+            ctx.obj['ask_sudo_pass'])
 
 @click.command()
 def ls():
