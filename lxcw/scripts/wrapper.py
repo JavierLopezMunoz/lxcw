@@ -122,13 +122,14 @@ def destroy(ctx):
          '-R', ctx.obj['vm']['hostname']])
     utils.ansible_local(
         'lineinfile',
-        'dest=/etc/hosts regexp=\'10.0.3.[0-9]* {}\' state=absent'.format(
-            ctx.obj['vm']['hostname']),
+        'dest=/etc/hosts regexp=\'^{} {}$\' state=absent'.format(
+            utils.ip(ctx.obj['vm']['hostname']), ctx.obj['vm']['hostname']),
         ctx.obj['ask_sudo_pass'])
     utils.ansible_local(
         'lineinfile',
-        'dest=/etc/dnsmasq.d/lxc regexp=\'dhcp-host={},10.0.3.[0-9]*\''
-        ' state=absent'.format(ctx.obj['vm']['hostname']),
+        'dest=/etc/dnsmasq.d/lxc regexp=\'dhcp-host={},{}\''
+        ' state=absent'.format(ctx.obj['vm']['hostname'],
+                               utils.ip(ctx.obj['vm']['hostname'])),
         ctx.obj['ask_sudo_pass'])
     sp.call(['sudo', 'service', 'lxc-net', 'restart'])
 
