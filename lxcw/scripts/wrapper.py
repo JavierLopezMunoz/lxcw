@@ -59,9 +59,9 @@ def up(ctx):
         # Add user to sudoers to allow run sudo commands without password
         user = os.environ['USER']
         utils.ansible(
-            'localhost,''lineinfile',
-            'dest=/etc/sudoers state=present regexp=\'^%(user)s ALL\=\''
-            ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
+            'localhost', 'lineinfile',
+            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
+            ' state=present'.format(user),
             ctx.obj['ask_become_pass'])
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
@@ -103,8 +103,8 @@ def up(ctx):
         # Remove nopasswd user from sudoers
         utils.ansible(
             'localhost', 'lineinfile',
-            'dest=/etc/sudoers state=absent regexp=\'^%(user)s ALL\=\''
-            ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
+            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
+            ' state=absent'.format(user),
             ctx.obj['ask_become_pass'])
 
 @click.command()
