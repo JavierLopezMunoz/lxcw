@@ -1,7 +1,7 @@
-from distutils import spawn
 import json
 import os
 import re
+import string
 import subprocess as sp
 import sys
 import yaml
@@ -13,13 +13,21 @@ from .. import utils
 
 @click.group()
 @click.pass_context
-@click.option('--ask-sudo-pass', default=False, is_flag=True)
-def cli(ctx, ask_sudo_pass):
+@click.option('--ask-become-pass', default=False, is_flag=True)
+def cli(ctx, ask_become_pass):
     if ctx.invoked_subcommand not in ('init', 'ls'):
         try:
             with open("lxcwfile.yml", 'r') as stream:
                 ctx.obj = yaml.load(stream)[0]
-                ctx.obj['ask_sudo_pass'] = ask_sudo_pass
+                ctx.obj['vm']['hostnames'] = [ctx.obj['vm']['hostname']]
+                if 'aliases' in ctx.obj['vm']:
+                    ctx.obj['vm']['hostnames'] += ctx.obj['vm']['aliases']
+                if 'provision' in ['vm']:
+                    ctx.obj['vm']['provision']['ansible']['playbook'] = (
+                        os.path.join(
+                            os.getcwd(),
+                            ctx.obj['vm']['provision']['ansible']['playbook']))
+                ctx.obj['ask_become_pass'] = ask_become_pass
         except IOError as err:
             click.secho('No \'lxcwfile.yml\' present', fg='red')
             sys.exit(1)
@@ -32,17 +40,29 @@ def ssh(ctx):
               ['ssh', ctx.obj['vm']['hostname'], '-l', os.environ['USER']])
 
 
+PLAYBOOK_UP = string.Template('''
+---
+- hosts: all
+  become: yes
+  tasks:
+    - lineinfile: dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc
+    - lineinfile: dest=/etc/dnsmasq.d/lxc line="dhcp-host=${hostname},${ip}"
+    - lineinfile: dest=/etc/hosts line="${ip} ${hostnames}"
+    - lineinfile: dest=/var/lib/lxc/${hostname}/rootfs/etc/sudoers line="${user} ALL=(ALL) NOPASSWD:ALL" state=present
+''')
+
+
 @click.command()
 @click.pass_context
 def up(ctx):
     try:
         # Add user to sudoers to allow run sudo commands without password
         user = os.environ['USER']
-        utils.ansible_local(
-            'lineinfile',
+        utils.ansible(
+            'localhost,''lineinfile',
             'dest=/etc/sudoers state=present regexp=\'^%(user)s ALL\=\''
             ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
-            True)
+            ctx.obj['ask_become_pass'])
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
     except sp.CalledProcessError:
@@ -52,7 +72,6 @@ def up(ctx):
             'is not running' if utils.os_version() == 'precise'
             else "doesn't exist")
         if not output or message in output:
-
             packages = [
                 'python', 'python-pip', 'python-dev', 'build-essential']
             cmd = ['sudo', 'lxc-create', '-t', 'ubuntu',
@@ -61,40 +80,32 @@ def up(ctx):
                    ','.join(packages), '--release', ctx.obj['vm']['box']]
             sp.call(cmd)
 
-            utils.ansible_local(
-                'lineinfile',
-                'dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE'
-                ' line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc',
-                ctx.obj['ask_sudo_pass'])
+            utils.ansible_playbook(
+                'localhost', playbook_content=PLAYBOOK_UP.substitute(
+                    hostname=ctx.obj['vm']['hostname'],
+                    hostnames=' '.join(ctx.obj['vm']['hostnames']),
+                    ip=utils.random_unused_ip(), user=user),
+                ask_become_pass=ctx.obj['ask_become_pass'])
 
-            IP = utils.random_unused_ip()
-            utils.ansible_local(
-                'lineinfile',
-                'dest=/etc/dnsmasq.d/lxc line=dhcp-host={},{}'.format(
-                    ctx.obj['vm']['hostname'], IP),
-                ctx.obj['ask_sudo_pass'])
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
-
-            hostnames = [ctx.obj['vm']['hostname']]
-            if 'aliases' in ctx.obj['vm']:
-                hostnames += ctx.obj['vm']['aliases']
-            utils.ansible_local(
-                'lineinfile',
-                'dest=/etc/hosts line=\'{0} {1}\''.format(
-                    IP, ' '.join(hostnames)),
-                ctx.obj['ask_sudo_pass'])
-
-            sp.call(['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
-
+            sp.call(
+                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+            if 'provision' in ctx.obj['vm']:
+                utils.ansible_playbook(
+                    ctx.obj['vm']['hostname'],
+                    ctx.obj['vm']['provision']['ansible']['playbook'],
+                    ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
+                    ctx.obj['ask_become_pass'])
         else:
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+
         # Remove nopasswd user from sudoers
-        utils.ansible_local(
-            'lineinfile',
+        utils.ansible(
+            'localhost', 'lineinfile',
             'dest=/etc/sudoers state=absent regexp=\'^%(user)s ALL\=\''
             ' line=\'%(user)s ALL=(ALL) NOPASSWD:ALL\'' % ({'user': user}),
-            ctx.obj['ask_sudo_pass'])
+            ctx.obj['ask_become_pass'])
 
 @click.command()
 def ls():
@@ -111,45 +122,42 @@ def halt(ctx):
         ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
 
 
+PLAYBOOK_DESTROY = string.Template('''
+---
+- hosts: all
+  become: yes
+  tasks:
+    - lineinfile: dest=/etc/hosts line="${ip} ${hostnames}" state=absent
+    - lineinfile: dest=/etc/dnsmasq.d/lxc line="dhcp-host=${hostname},${ip}" state=absent
+    - service: name=lxc-net state=restarted
+''')
+
+
 @click.command()
 @click.pass_context
 def destroy(ctx):
     sp.call(
-        ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
-    sp.call(['sudo', 'lxc-destroy', '--name', ctx.obj['vm']['hostname']])
-    sp.call(
         ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
          '-R', ctx.obj['vm']['hostname']])
-    utils.ansible_local(
-        'lineinfile',
-        'dest=/etc/hosts regexp=\'^{} {}$\' state=absent'.format(
-            utils.ip(ctx.obj['vm']['hostname']), ctx.obj['vm']['hostname']),
-        ctx.obj['ask_sudo_pass'])
-    utils.ansible_local(
-        'lineinfile',
-        'dest=/etc/dnsmasq.d/lxc regexp=\'dhcp-host={},{}\''
-        ' state=absent'.format(ctx.obj['vm']['hostname'],
-                               utils.ip(ctx.obj['vm']['hostname'])),
-        ctx.obj['ask_sudo_pass'])
-    sp.call(['sudo', 'service', 'lxc-net', 'restart'])
+    utils.ansible_playbook(
+        'localhost', playbook_content=PLAYBOOK_DESTROY.substitute(
+            hostname=ctx.obj['vm']['hostname'],
+            hostnames=' '.join(ctx.obj['vm']['hostnames']),
+            ip=utils.ip(ctx.obj['vm']['hostname'])),
+        ask_become_pass=ctx.obj['ask_become_pass'])
+    sp.call(
+        ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
+    sp.call(['sudo', 'lxc-destroy', '--name', ctx.obj['vm']['hostname']])
 
 
 @click.command()
 @click.pass_context
 def provision(ctx):
-    cmd = [
-        'ansible-playbook', '-l', ctx.obj['vm']['hostname'],
-        '-i', spawn.find_executable('lxci')]
-    if 'extra_vars' in ctx.obj['vm']['provision']['ansible']:
-        cmd += ['--extra-vars',
-                json.dumps(
-                    ctx.obj['vm']['provision']['ansible']['extra_vars'])]
-    cmd += [
-        os.path.join(os.getcwd(),
-                     ctx.obj['vm']['provision']['ansible']['playbook'])]
-    if ctx.obj['ask_sudo_pass']:
-        cmd += ['--ask-become-pass']
-    sp.call(cmd)
+    utils.ansible_playbook(
+        ctx.obj['vm']['hostname'],
+        ctx.obj['vm']['provision']['ansible']['playbook'],
+        ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
+        ctx.obj['ask_become_pass'])
 
 
 @click.command()
