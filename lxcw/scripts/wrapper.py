@@ -13,12 +13,11 @@ from .. import utils
 
 @click.group()
 @click.pass_context
-@click.option('--ask-become-pass', default=False, is_flag=True)
-def cli(ctx, ask_become_pass):
+def cli(ctx):
     if ctx.invoked_subcommand not in ('init', 'ls'):
         try:
             with open("lxcwfile.yml", 'r') as stream:
-                ctx.obj = yaml.load(stream)[0]
+                ctx.obj = yaml.load(stream)
                 ctx.obj['vm']['hostnames'] = [ctx.obj['vm']['hostname']]
                 if 'aliases' in ctx.obj['vm']:
                     ctx.obj['vm']['hostnames'] += ctx.obj['vm']['aliases']
@@ -27,7 +26,6 @@ def cli(ctx, ask_become_pass):
                         os.path.join(
                             os.getcwd(),
                             ctx.obj['vm']['provision']['ansible']['playbook']))
-                ctx.obj['ask_become_pass'] = ask_become_pass
         except IOError as err:
             click.secho('No \'lxcwfile.yml\' present', fg='red')
             sys.exit(1)
@@ -171,14 +169,15 @@ def status(ctx):
 @click.command()
 @click.argument('hostname')
 def init(hostname):
-    lxcwfile = yaml.dump([
-        dict([('vm',
+    lxcwfile = yaml.dump(
+        dict([('ask_become_pass', True),
+              ('vm',
                dict([('box', utils.os_version()),
                      ('hostname', str(hostname)),
                      ('provision',
                       dict([('ansible',
                              dict([('playbook',
-                                    'provision/playbook.yml')]))]))]))])],
+                                    'provision/playbook.yml')]))]))]))]),
         default_flow_style=False)
     output = re.sub(r'^\s(\s+provision)', r'#\1',
                     re.sub(r'^\s(\s+ansible)', r'#\1',
