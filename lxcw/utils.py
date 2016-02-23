@@ -1,4 +1,3 @@
-from distutils import spawn
 import os
 import random
 import socket
@@ -20,33 +19,27 @@ def os_release():
     return sp.check_output(['lsb_release', '-cs']).strip()
 
 
-def ansible(host, module, argument, ask_become_pass=False):
+def ansible(host, module, argument):
     cmd = [
         'ansible', 'all', '-i', '{},'.format(host), '-m',
         module, '-a', '{}'.format(argument), '--become']
     if host == 'localhost':
         cmd += ['-c', 'local']
-    if ask_become_pass:
-        cmd += ['--ask-become-pass']
     sp.call(cmd)
 
 
 def ansible_playbook(host, playbook=None, playbook_content=None,
-                     extra_vars=None, ask_become_pass=False):
+                     extra_vars=None):
     if playbook_content:
         with tempfile.NamedTemporaryFile(mode='w+t', delete=False) as f:
             playbook = f.name
             f.write(playbook_content)
-    cmd = ['ansible-playbook']
+    cmd = ['ansible-playbook', '-i', '{},'.format(host),]
     if host == 'localhost':
-        cmd += ['-i', 'localhost,', '-c', 'local']
-    else:
-        cmd += ['-l', host, '-i', spawn.find_executable('lxci')]
+        cmd += ['-c', 'local']
     if extra_vars:
         cmd += ['--extra-vars', json.dumps(extra_vars)]
     cmd += [playbook]
-    if ask_become_pass:
-        cmd += ['--ask-become-pass']
     sp.call(cmd)
     if playbook_content:
         os.remove(f.name)

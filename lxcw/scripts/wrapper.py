@@ -57,7 +57,7 @@ PLAYBOOK_UP_CONTAINER = '''
 - hosts: all
   become: yes
   tasks:
-  - apt: name=$item state=latest
+  - apt: name={{ item }} state=latest
     with_items:
      - python
      - python-pip
@@ -65,7 +65,7 @@ PLAYBOOK_UP_CONTAINER = '''
      - build-essential
     when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
 
-  - yum: name=$item state=latest
+  - yum: name={{ item }} state=latest
     with_items:
      - python
      - python-pip
@@ -77,12 +77,12 @@ PLAYBOOK_UP_CONTAINER = '''
 @click.pass_context
 def up(ctx):
     try:
-        # Add user to sudoers to allow run sudo commands without password
-        utils.ansible(
-            'localhost', 'lineinfile',
-            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-            ' state=present'.format(os.environ['USER']),
-            ctx.obj['ask_become_pass'])
+        if not ctx.obj['nopasswd_sudoer']:
+            # Add user to sudoers to allow run sudo commands without password
+            utils.ansible(
+                'localhost', 'lineinfile',
+                'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
+                ' state=present'.format(os.environ['USER']))
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
     except sp.CalledProcessError:
@@ -115,33 +115,29 @@ def up(ctx):
                 'localhost', playbook_content=PLAYBOOK_UP_HOST.substitute(
                     hostname=ctx.obj['vm']['hostname'],
                     hostnames=' '.join(ctx.obj['vm']['hostnames']),
-                    ip=utils.random_unused_ip(), user=os.environ['USER']),
-                ask_become_pass=ctx.obj['ask_become_pass'])
-
+                    ip=utils.random_unused_ip(), user=os.environ['USER']))
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
 
             utils.ansible_playbook(
                 ctx.obj['vm']['hostname'],
-                playbook_content=PLAYBOOK_UP_CONTAINER,
-                ask_become_pass=ctx.obj['ask_become_pass'])
+                playbook_content=PLAYBOOK_UP_CONTAINER)
             if 'provision' in ctx.obj['vm']:
                 utils.ansible_playbook(
                     ctx.obj['vm']['hostname'],
                     ctx.obj['vm']['provision']['ansible']['playbook'],
-                    ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
-                    ctx.obj['ask_become_pass'])
+                    ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
         else:
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
 
-        # Remove nopasswd user from sudoers
-        utils.ansible(
-            'localhost', 'lineinfile',
-            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-            ' state=absent'.format(os.environ['USER']),
-            ctx.obj['ask_become_pass'])
+        if not ctx.obj['nopasswd_sudoer']:
+            # Remove nopasswd user from sudoers
+            utils.ansible(
+                'localhost', 'lineinfile',
+                'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
+                ' state=absent'.format(os.environ['USER']))
 
 @click.command()
 def ls():
@@ -179,8 +175,7 @@ def destroy(ctx):
         'localhost', playbook_content=PLAYBOOK_DESTROY.substitute(
             hostname=ctx.obj['vm']['hostname'],
             hostnames=' '.join(ctx.obj['vm']['hostnames']),
-            ip=utils.ip(ctx.obj['vm']['hostname'])),
-        ask_become_pass=ctx.obj['ask_become_pass'])
+            ip=utils.ip(ctx.obj['vm']['hostname'])))
     sp.call(
         ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
     sp.call(['sudo', 'lxc-destroy', '--name', ctx.obj['vm']['hostname']])
@@ -191,13 +186,11 @@ def destroy(ctx):
 def provision(ctx):
     utils.ansible_playbook(
         ctx.obj['vm']['hostname'],
-        playbook_content=PLAYBOOK_UP_CONTAINER,
-        ask_become_pass=ctx.obj['ask_become_pass'])
+        playbook_content=PLAYBOOK_UP_CONTAINER)
     utils.ansible_playbook(
         ctx.obj['vm']['hostname'],
         ctx.obj['vm']['provision']['ansible']['playbook'],
-        ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
-        ctx.obj['ask_become_pass'])
+        ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
 
 
 @click.command()
@@ -212,7 +205,7 @@ def status(ctx):
 @click.argument('hostname')
 def init(hostname):
     lxcwfile = yaml.dump(
-        dict([('ask_become_pass', True),
+        dict([('nopasswd_sudoer', False),
               ('vm',
                dict([('box',
                       dict([('distro', utils.os_distro()),
