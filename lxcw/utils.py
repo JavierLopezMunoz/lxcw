@@ -17,7 +17,7 @@ def os_distro():
 
 
 def os_release():
-    return sp.check_output(['lsb_release', '-rs']).strip()
+    return sp.check_output(['lsb_release', '-cs']).strip()
 
 
 def ansible(host, module, argument, ask_become_pass=False):
