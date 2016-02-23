@@ -12,8 +12,12 @@ def ip(name):
         'sudo', 'lxc-info', '--name', name, '-i']).strip().split()[1]
 
 
-def os_version():
-    return sp.check_output(['lsb_release', '-cs']).strip()
+def os_distro():
+    return sp.check_output(['lsb_release', '-is']).strip().lower()
+
+
+def os_release():
+    return sp.check_output(['lsb_release', '-rs']).strip()
 
 
 def ansible(host, module, argument, ask_become_pass=False):

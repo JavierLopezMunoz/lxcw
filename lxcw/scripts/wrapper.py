@@ -18,6 +18,8 @@ def cli(ctx):
         try:
             with open("lxcwfile.yml", 'r') as stream:
                 ctx.obj = yaml.load(stream)
+                ctx.obj['vm']['box']['release'] = str(
+                    ctx.obj['vm']['box']['release'])
                 ctx.obj['vm']['hostnames'] = [ctx.obj['vm']['hostname']]
                 if 'aliases' in ctx.obj['vm']:
                     ctx.obj['vm']['hostnames'] += ctx.obj['vm']['aliases']
@@ -38,7 +40,7 @@ def ssh(ctx):
               ['ssh', ctx.obj['vm']['hostname'], '-l', os.environ['USER']])
 
 
-PLAYBOOK_UP = string.Template('''
+PLAYBOOK_UP_HOST = string.Template('''
 ---
 - hosts: all
   become: yes
@@ -50,16 +52,36 @@ PLAYBOOK_UP = string.Template('''
 ''')
 
 
+PLAYBOOK_UP_CONTAINER = '''
+---
+- hosts: all
+  become: yes
+  tasks:
+  - apt: name=$item state=latest
+    with_items:
+     - python
+     - python-pip
+     - python-dev
+     - build-essential
+    when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+  - yum: name=$item state=latest
+    with_items:
+     - python
+     - python-pip
+    when: ansible_distribution == 'CentOS'
+'''
+
+
 @click.command()
 @click.pass_context
 def up(ctx):
     try:
         # Add user to sudoers to allow run sudo commands without password
-        user = os.environ['USER']
         utils.ansible(
             'localhost', 'lineinfile',
             'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-            ' state=present'.format(user),
+            ' state=present'.format(os.environ['USER']),
             ctx.obj['ask_become_pass'])
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
@@ -67,27 +89,43 @@ def up(ctx):
         output = None
     finally:
         message = (
-            'is not running' if utils.os_version() == 'precise'
+            'is not running' if utils.os_release() == '12.04'
             else "doesn't exist")
         if not output or message in output:
-            packages = [
-                'python', 'python-pip', 'python-dev', 'build-essential']
-            cmd = ['sudo', 'lxc-create', '-t', 'ubuntu',
+            cmd = ['sudo', 'lxc-create', '-t', ctx.obj['vm']['box']['distro'],
                    '--name', ctx.obj['vm']['hostname'], '--',
-                   '--bindhome', user, '--user', user, '--packages',
-                   ','.join(packages), '--release', ctx.obj['vm']['box']]
+                   '--release', ctx.obj['vm']['box']['release']]
+            if ctx.obj['vm']['box']['distro'] == 'ubuntu':
+                cmd += ['--bindhome', os.environ['USER'], '--user',
+                        os.environ['USER']]
+            elif ctx.obj['vm']['box']['distro'] == 'centos':
+                try:
+                   sp.check_call(['dpkg', '-l', 'yum'])
+                except sp.CalledProcessError:
+                    click.secho(
+                        'Please, to install CentOS containers'
+                        ' "sudo apt-get install yum"', fg='blue')
+                    sys.exit(1)
+            else:
+                click.secho('Ubuntu and CentOS containers supported', fg='red')
+                sys.exit(1)
             sp.call(cmd)
 
             utils.ansible_playbook(
-                'localhost', playbook_content=PLAYBOOK_UP.substitute(
+                'localhost', playbook_content=PLAYBOOK_UP_HOST.substitute(
                     hostname=ctx.obj['vm']['hostname'],
                     hostnames=' '.join(ctx.obj['vm']['hostnames']),
-                    ip=utils.random_unused_ip(), user=user),
+                    ip=utils.random_unused_ip(), user=os.environ['USER']),
                 ask_become_pass=ctx.obj['ask_become_pass'])
 
             sp.call(['sudo', 'service', 'lxc-net', 'restart'])
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+
+            utils.ansible_playbook(
+                ctx.obj['vm']['hostname'],
+                playbook_content=PLAYBOOK_UP_CONTAINER,
+                ask_become_pass=ctx.obj['ask_become_pass'])
             if 'provision' in ctx.obj['vm']:
                 utils.ansible_playbook(
                     ctx.obj['vm']['hostname'],
@@ -102,13 +140,13 @@ def up(ctx):
         utils.ansible(
             'localhost', 'lineinfile',
             'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-            ' state=absent'.format(user),
+            ' state=absent'.format(os.environ['USER']),
             ctx.obj['ask_become_pass'])
 
 @click.command()
 def ls():
     cmd = ['sudo', 'lxc-ls']
-    if utils.os_version() != 'precise':
+    if utils.os_release() != '12.04':
         cmd += ['--fancy']
     sp.call(cmd)
 
@@ -153,6 +191,10 @@ def destroy(ctx):
 def provision(ctx):
     utils.ansible_playbook(
         ctx.obj['vm']['hostname'],
+        playbook_content=PLAYBOOK_UP_CONTAINER,
+        ask_become_pass=ctx.obj['ask_become_pass'])
+    utils.ansible_playbook(
+        ctx.obj['vm']['hostname'],
         ctx.obj['vm']['provision']['ansible']['playbook'],
         ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
         ctx.obj['ask_become_pass'])
@@ -172,7 +214,9 @@ def init(hostname):
     lxcwfile = yaml.dump(
         dict([('ask_become_pass', True),
               ('vm',
-               dict([('box', utils.os_version()),
+               dict([('box',
+                      dict([('distro', utils.os_distro()),
+                            ('release', utils.os_release())])),
                      ('hostname', str(hostname)),
                      ('provision',
                       dict([('ansible',
