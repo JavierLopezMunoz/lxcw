@@ -109,7 +109,7 @@ def up(ctx):
                 sp.call(
                     ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
                         ctx.obj['vm']['hostname']),
-                     'chown', os.environ['USER'],
+                     'chown', '{0}:{0}'.format(os.environ['USER']),
                      '/home/{}'.format(os.environ['USER'])])
                 sp.call(
                     ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
