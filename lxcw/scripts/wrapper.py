@@ -209,8 +209,7 @@ def provision(ctx):
 @click.command()
 @click.pass_context
 def status(ctx):
-    os.execvp(
-        'lxc-info',
+    sp.call(
         ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
 
 
