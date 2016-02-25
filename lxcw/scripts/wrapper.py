@@ -159,8 +159,8 @@ PLAYBOOK_DESTROY = string.Template('''
 - hosts: all
   become: yes
   tasks:
-    - lineinfile: dest=/etc/hosts line="${ip} ${hostnames}" state=absent
-    - lineinfile: dest=/etc/dnsmasq.d/lxc line="dhcp-host=${hostname},${ip}" state=absent
+    - lineinfile: dest=/etc/hosts regexp="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} ${hostnames}" state=absent
+    - lineinfile: dest=/etc/dnsmasq.d/lxc regexp="dhcp-host=${hostname},\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" state=absent
     - service: name=lxc-net state=restarted
 ''')
 
@@ -169,18 +169,15 @@ PLAYBOOK_DESTROY = string.Template('''
 @click.pass_context
 def destroy(ctx):
     sp.call(
-        ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
-    sp.call(
         ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
          '-R', ctx.obj['vm']['hostname']])
     utils.ansible_playbook(
         'localhost', playbook_content=PLAYBOOK_DESTROY.substitute(
             hostname=ctx.obj['vm']['hostname'],
-            hostnames=' '.join(ctx.obj['vm']['hostnames']),
-            ip=utils.ip(ctx.obj['vm']['hostname'])))
+            hostnames=' '.join(ctx.obj['vm']['hostnames'])))
     sp.call(
-        ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
-    sp.call(['sudo', 'lxc-destroy', '--name', ctx.obj['vm']['hostname']])
+        ['sudo', 'lxc-destroy', '--force',
+         '--name', ctx.obj['vm']['hostname']])
 
 
 @click.command()
