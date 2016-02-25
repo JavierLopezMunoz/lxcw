@@ -122,11 +122,15 @@ def up(ctx):
                 sp.call(
                     ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
                         ctx.obj['vm']['hostname']),
-                     'yum', 'install', '-y', 'sudo', 'epel-release'])
+                     'yum', 'install', '-y', 'sudo', 'gcc', 'epel-release'])
                 sp.call(
                     ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
                         ctx.obj['vm']['hostname']),
                      'yum', 'install', '-y', 'python-pip'])
+                sp.call(
+                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
+                        ctx.obj['vm']['hostname']),
+                     'pip', 'install', '--upgrade', 'pip'])
 
             utils.ansible_playbook(
                 'localhost', playbook_content=PLAYBOOK_UP.substitute(
@@ -197,13 +201,14 @@ def destroy(ctx):
 @click.command()
 @click.pass_context
 def provision(ctx):
-    utils.ansible_playbook(
-        ctx.obj['vm']['hostname'],
-        playbook_content=PLAYBOOK_UP_CONTAINER)
-    utils.ansible_playbook(
-        ctx.obj['vm']['hostname'],
-        ctx.obj['vm']['provision']['ansible']['playbook'],
-        ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
+    if 'provision' in ctx.obj['vm']:
+        utils.ansible_playbook(
+            ctx.obj['vm']['hostname'],
+            ctx.obj['vm']['provision']['ansible']['playbook'],
+            ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
+    else:
+        click.secho(
+            'Nothing to be done', fg='blue')
 
 
 @click.command()
