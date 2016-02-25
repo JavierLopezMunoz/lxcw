@@ -1,3 +1,4 @@
+import crypt
 import json
 import os
 import re
@@ -40,7 +41,7 @@ def ssh(ctx):
               ['ssh', ctx.obj['vm']['hostname'], '-l', os.environ['USER']])
 
 
-PLAYBOOK_UP_HOST = string.Template('''
+PLAYBOOK_UP = string.Template('''
 ---
 - hosts: all
   become: yes
@@ -51,38 +52,17 @@ PLAYBOOK_UP_HOST = string.Template('''
     - lineinfile: dest=/var/lib/lxc/${hostname}/rootfs/etc/sudoers line="${user} ALL=(ALL) NOPASSWD:ALL" state=present
 ''')
 
-
-PLAYBOOK_UP_CONTAINER = '''
----
-- hosts: all
-  become: yes
-  tasks:
-  - apt: name={{ item }} state=latest
-    with_items:
-     - python
-     - python-pip
-     - python-dev
-     - build-essential
-    when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
-
-  - yum: name={{ item }} state=latest
-    with_items:
-     - python
-     - python-pip
-    when: ansible_distribution == 'CentOS'
-'''
-
-
 @click.command()
 @click.pass_context
 def up(ctx):
+    if not ctx.obj['nopasswd_sudoer']:
+        # Add user to sudoers to allow run sudo commands without password
+        utils.ansible(
+            'localhost', 'lineinfile',
+            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
+            ' state=present'.format(os.environ['USER']))
+
     try:
-        if not ctx.obj['nopasswd_sudoer']:
-            # Add user to sudoers to allow run sudo commands without password
-            utils.ansible(
-                'localhost', 'lineinfile',
-                'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-                ' state=present'.format(os.environ['USER']))
         output = sp.check_output(
             ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
     except sp.CalledProcessError:
@@ -92,13 +72,21 @@ def up(ctx):
             'is not running' if utils.os_release() == '12.04'
             else "doesn't exist")
         if not output or message in output:
-            cmd = ['sudo', 'lxc-create', '-t', ctx.obj['vm']['box']['distro'],
+            cmd = ['sudo', 'lxc-create',
+                   '--template', ctx.obj['vm']['box']['distro'],
                    '--name', ctx.obj['vm']['hostname'], '--',
                    '--release', ctx.obj['vm']['box']['release']]
             if ctx.obj['vm']['box']['distro'] == 'ubuntu':
-                cmd += ['--bindhome', os.environ['USER'], '--user',
-                        os.environ['USER']]
+                cmd += ['--bindhome', os.environ['USER'],
+                        '--user', os.environ['USER'],
+                        '--packages', ','.join([
+                            'python', 'python-pip', 'python-dev',
+                            'build-essential'])]
             elif ctx.obj['vm']['box']['distro'] == 'centos':
+                if int(ctx.obj['vm']['box']['release']) < 6:
+                    click.secho(
+                        'Only CentOS >= 6 container supported', fg='red')
+                    sys.exit(1)
                 try:
                    sp.check_call(['dpkg', '-l', 'yum'])
                 except sp.CalledProcessError:
@@ -107,12 +95,33 @@ def up(ctx):
                         ' "sudo apt-get install yum"', fg='blue')
                     sys.exit(1)
             else:
-                click.secho('Ubuntu and CentOS containers supported', fg='red')
+                click.secho(
+                    'Only Ubuntu and CentOS containers supported', fg='red')
                 sys.exit(1)
             sp.call(cmd)
 
+            if ctx.obj['vm']['box']['distro'] == 'centos':
+                sp.call(
+                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
+                        ctx.obj['vm']['hostname']),
+                     'useradd', '--create-home', os.environ['USER'],
+                     '-p', crypt.crypt('centos', 'aa')])
+                sp.call(
+                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
+                        ctx.obj['vm']['hostname']),
+                     'chown', os.environ['USER'],
+                     '/home/{}'.format(os.environ['USER'])])
+                sp.call(
+                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
+                        ctx.obj['vm']['hostname']),
+                     'yum', 'install', '-y', 'sudo', 'epel-release'])
+                sp.call(
+                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
+                        ctx.obj['vm']['hostname']),
+                     'yum', 'install', '-y', 'python-pip'])
+
             utils.ansible_playbook(
-                'localhost', playbook_content=PLAYBOOK_UP_HOST.substitute(
+                'localhost', playbook_content=PLAYBOOK_UP.substitute(
                     hostname=ctx.obj['vm']['hostname'],
                     hostnames=' '.join(ctx.obj['vm']['hostnames']),
                     ip=utils.random_unused_ip(), user=os.environ['USER']))
@@ -120,9 +129,6 @@ def up(ctx):
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
 
-            utils.ansible_playbook(
-                ctx.obj['vm']['hostname'],
-                playbook_content=PLAYBOOK_UP_CONTAINER)
             if 'provision' in ctx.obj['vm']:
                 utils.ansible_playbook(
                     ctx.obj['vm']['hostname'],
