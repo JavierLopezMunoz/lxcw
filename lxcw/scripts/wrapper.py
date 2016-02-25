@@ -44,8 +44,9 @@ def ssh(ctx):
 @click.command()
 @click.pass_context
 def ssh_copy_id(ctx):
-    sp.call(['ssh-copy-id', '{}@{}'.format(
-        os.environ['USER'], ctx.obj['vm']['hostname'])])
+    os.execvp('ssh-copy-id',
+              ['ssh-copy-id', '{}@{}'.format(
+                  os.environ['USER'], ctx.obj['vm']['hostname'])])
 
 
 PLAYBOOK_UP = string.Template('''
