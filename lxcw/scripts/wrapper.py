@@ -169,6 +169,8 @@ PLAYBOOK_DESTROY = string.Template('''
 @click.pass_context
 def destroy(ctx):
     sp.call(
+        ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
+    sp.call(
         ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
          '-R', ctx.obj['vm']['hostname']])
     utils.ansible_playbook(
