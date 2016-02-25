@@ -41,6 +41,13 @@ def ssh(ctx):
               ['ssh', ctx.obj['vm']['hostname'], '-l', os.environ['USER']])
 
 
+@click.command()
+@click.pass_context
+def ssh_copy_id(ctx):
+    sp.call(['ssh-copy-id', '{}@{}'.format(
+        os.environ['USER'], ctx.obj['vm']['hostname'])])
+
+
 PLAYBOOK_UP = string.Template('''
 ---
 - hosts: all
@@ -236,4 +243,5 @@ cli.add_command(ls)
 cli.add_command(provision)
 cli.add_command(status)
 cli.add_command(ssh)
+cli.add_command(ssh_copy_id, 'ssh-copy-id')
 cli.add_command(up)
