@@ -1,3 +1,4 @@
+import json
 import os
 import random
 import socket
@@ -29,7 +30,7 @@ def ansible(host, module, argument):
 
 
 def ansible_playbook(host, playbook=None, playbook_content=None,
-                     extra_vars=None):
+                     extra_vars=None, tags=[]):
     if playbook_content:
         with tempfile.NamedTemporaryFile(mode='w+t', delete=False) as f:
             playbook = f.name
@@ -39,6 +40,8 @@ def ansible_playbook(host, playbook=None, playbook_content=None,
         cmd += ['-c', 'local']
     if extra_vars:
         cmd += ['--extra-vars', json.dumps(extra_vars)]
+    if tags:
+        cmd += ['--tags', ','.join(tags)]
     cmd += [playbook]
     sp.call(cmd)
     if playbook_content:

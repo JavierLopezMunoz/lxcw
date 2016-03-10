@@ -145,7 +145,7 @@ def up(ctx):
                 utils.ansible_playbook(
                     ctx.obj['vm']['hostname'],
                     ctx.obj['vm']['provision']['ansible']['playbook'],
-                    ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
+                    extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
         else:
             sp.call(
                 ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
@@ -200,12 +200,14 @@ def destroy(ctx):
 
 @click.command()
 @click.pass_context
-def provision(ctx):
+@click.argument('tags', nargs=-1)
+def provision(ctx, tags):
     if 'provision' in ctx.obj['vm']:
         utils.ansible_playbook(
             ctx.obj['vm']['hostname'],
             ctx.obj['vm']['provision']['ansible']['playbook'],
-            ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
+            extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
+            tags=tags)
     else:
         click.secho(
             'Nothing to be done', fg='blue')
