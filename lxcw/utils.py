@@ -20,6 +20,11 @@ def os_release():
     return sp.check_output(['lsb_release', '-cs']).strip()
 
 
+def os_arch():
+    arch = sp.check_output(['uname', '-m']).strip()
+    return 'amd64' if arch == 'x86_64' else arch
+
+
 def ansible(host, module, argument):
     cmd = [
         'ansible', 'all', '-i', '{},'.format(host), '-m',
