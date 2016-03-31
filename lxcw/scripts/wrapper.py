@@ -218,13 +218,14 @@ def destroy(ctx):
 @click.command()
 @click.pass_context
 @click.argument('tags', nargs=-1)
-def provision(ctx, tags):
+@click.option('-v', '--verbose', type=bool, default=False, is_flag=True)
+def provision(ctx, tags, verbose):
     if 'provision' in ctx.obj['vm']:
         utils.ansible_playbook(
             ctx.obj['vm']['hostname'],
             ctx.obj['vm']['provision']['ansible']['playbook'],
             extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
-            tags=tags)
+            tags=tags, verbose=verbose)
     else:
         click.secho(
             'Nothing to be done', fg='blue')

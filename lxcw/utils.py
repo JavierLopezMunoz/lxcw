@@ -35,7 +35,7 @@ def ansible(host, module, argument):
 
 
 def ansible_playbook(host, playbook=None, playbook_content=None,
-                     extra_vars=None, tags=[]):
+                     extra_vars=None, tags=[], verbose=False):
     if playbook_content:
         with tempfile.NamedTemporaryFile(mode='w+t', delete=False) as f:
             playbook = f.name
@@ -47,6 +47,8 @@ def ansible_playbook(host, playbook=None, playbook_content=None,
         cmd += ['--extra-vars', json.dumps(extra_vars)]
     if tags:
         cmd += ['--tags', ','.join(tags)]
+    if verbose:
+        cmd += ['-vvv']
     cmd += [playbook]
     sp.call(cmd)
     if playbook_content:
