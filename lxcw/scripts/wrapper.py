@@ -168,6 +168,11 @@ def up(ctx):
             if 'provision' in ctx.obj['vm']:
                 utils.ansible_playbook(
                     ctx.obj['vm']['hostname'],
+                    playbook_contents='\n'.join(
+                        ["- locale_gen: name={0} state=present".format(locale)
+                         for locale in ctx.obj['vm']['provision']['locales']]))
+                utils.ansible_playbook(
+                    ctx.obj['vm']['hostname'],
                     ctx.obj['vm']['provision']['ansible']['playbook'],
                     extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
         else:
@@ -248,14 +253,15 @@ def init(hostname):
                             ('release', utils.os_release())])),
                      ('hostname', str(hostname)),
                      ('provision',
-                      dict([('ansible',
-                             dict([('playbook',
-                                    'provision/playbook.yml')]))]))]))]),
+                      dict([
+                          ('locales', ['es_ES.UTF-8']),
+                          ('ansible',
+                           dict([('playbook',
+                                  'provision/playbook.yml')]))]))]))]),
         default_flow_style=False)
-    output = re.sub(r'^\s(\s+provision)', r'#\1',
-                    re.sub(r'^\s(\s+ansible)', r'#\1',
-                           re.sub(r'^\s(\s+playbook)', r'#\1', lxcwfile,
-                                  flags=re.M), flags=re.M), flags=re.M)
+    output = re.sub(r'^(\s+ansible)', r'#\1',
+                    re.sub(r'^(\s+playbook)', r'#\1', lxcwfile,
+                           flags=re.M), flags=re.M)
     with open('lxcwfile.yml', 'w') as stream:
         stream.write(output)
 
