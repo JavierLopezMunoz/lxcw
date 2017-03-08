@@ -1,5 +1,4 @@
 import crypt
-import json
 import os
 import re
 import string
@@ -15,12 +14,13 @@ from .. import utils
 @click.group()
 @click.pass_context
 def cli(ctx):
-    if ctx.invoked_subcommand not in ('init', 'ls'):
+    if ctx.invoked_subcommand not in ['init']:
         try:
             with open("lxcwfile.yml", 'r') as stream:
                 ctx.obj = yaml.load(stream)
                 ctx.obj['vm']['box']['release'] = str(
                     ctx.obj['vm']['box']['release'])
+                ctx.obj['vm']['name'] = ctx.obj['vm']['hostname'].replace('.', '-')
                 ctx.obj['vm']['hostnames'] = [ctx.obj['vm']['hostname']]
                 if 'aliases' in ctx.obj['vm']:
                     ctx.obj['vm']['hostnames'] += ctx.obj['vm']['aliases']
@@ -38,164 +38,80 @@ def cli(ctx):
 @click.pass_context
 def ssh(ctx):
     os.execvp('ssh',
-              ['ssh', ctx.obj['vm']['hostname'], '-l', os.environ['USER']])
+              ['ssh', ctx.obj['vm']['hostname'], '-l', 'ubuntu'])
 
 
 @click.command()
 @click.pass_context
 def ssh_copy_id(ctx):
     os.execvp('ssh-copy-id',
-              ['ssh-copy-id', '{}@{}'.format(
-                  os.environ['USER'], ctx.obj['vm']['hostname'])])
+              ['ssh-copy-id', 'ubuntu@{}'.format(ctx.obj['vm']['hostname'])])
 
-
-PLAYBOOK_UP = string.Template('''
----
-- hosts: all
-  become: yes
-  tasks:
-    - lineinfile: dest=/etc/default/lxc-net regexp=LXC_DHCP_CONFILE line=LXC_DHCP_CONFILE=/etc/dnsmasq.d/lxc
-    - lineinfile: dest=/etc/dnsmasq.d/lxc line="dhcp-host=${hostname},${ip}"
-    - lineinfile: dest=/etc/hosts line="${ip} ${hostnames}"
-    - lineinfile: dest=/var/lib/lxc/${hostname}/rootfs/etc/sudoers line="${user} ALL=(ALL) NOPASSWD:ALL" state=present
-''')
 
 @click.command()
 @click.pass_context
 def up(ctx):
-    if not ctx.obj['nopasswd_sudoer']:
-        # Add user to sudoers to allow run sudo commands without password
+    info = utils.info(ctx.obj['vm']['name'])
+    if not info:
+        sp.call(['lxc', 'init',
+                 ':'.join([ctx.obj['vm']['box']['distro'],
+                           ctx.obj['vm']['box']['release']]),
+                 ctx.obj['vm']['name']])
+
+        sp.call(['lxc', 'config', 'set',
+                 ctx.obj['vm']['name'], 'raw.idmap',
+                 'both {} 1000'.format(os.getuid())])
+
+        sp.call(['lxc', 'config', 'device', 'add',
+                 ctx.obj['vm']['name'], 'homedir', 'disk',
+                 'source={}'.format(os.environ['HOME']),
+                 'path=/home/ubuntu'])
+
+        sp.call(['lxc', 'start', ctx.obj['vm']['name']])
         utils.ansible(
-            'localhost', 'lineinfile',
-            'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-            ' state=present'.format(os.environ['USER']))
+            'localhost',
+            'lineinfile',
+            'dest=/etc/hosts line="{ip} {hostnames}"'.format(
+                ip=utils.ip(ctx.obj['vm']['name']),
+                hostnames=' '.join(ctx.obj['vm']['hostnames'])))
 
-    try:
-        output = sp.check_output(
-            ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
-    except sp.CalledProcessError:
-        output = None
-    finally:
-        message = (
-            'is not running' if utils.os_release() == '12.04'
-            else "doesn't exist")
-        if not output or message in output:
-            cmd = ['sudo', 'lxc-create',
-                   '--template', ctx.obj['vm']['box']['distro'],
-                   '--name', ctx.obj['vm']['hostname'], '--',
-                   '--release', ctx.obj['vm']['box']['release']]
-            if ctx.obj['vm']['box']['distro'] == 'ubuntu':
-                cmd += ['--bindhome', os.environ['USER'],
-                        '--user', os.environ['USER'],
-                        '--packages', ','.join([
-                            'python', 'python-pip', 'python-dev',
-                            'build-essential'])]
-            elif ctx.obj['vm']['box']['distro'] == 'centos':
-                if int(ctx.obj['vm']['box']['release']) < 6:
-                    click.secho(
-                        'Only CentOS >= 6 container supported', fg='red')
-                    sys.exit(1)
-                try:
-                   sp.check_call(['dpkg', '-l', 'yum'])
-                except sp.CalledProcessError:
-                    click.secho(
-                        'Please, to install CentOS containers'
-                        ' "sudo apt-get install yum"', fg='blue')
-                    sys.exit(1)
-            else:
-                click.secho(
-                    'Only Ubuntu and CentOS containers supported', fg='red')
-                sys.exit(1)
-            sp.call(cmd)
-
-            if ctx.obj['vm']['box']['distro'] == 'centos':
-                sp.call(
-                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
-                        ctx.obj['vm']['hostname']),
-                     'useradd', '--create-home', os.environ['USER'],
-                     '-p', crypt.crypt('centos', 'aa')])
-                sp.call(
-                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
-                        ctx.obj['vm']['hostname']),
-                     'chown', '{0}:{0}'.format(os.environ['USER']),
-                     '/home/{}'.format(os.environ['USER'])])
-                sp.call(
-                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
-                        ctx.obj['vm']['hostname']),
-                     'yum', 'install', '-y', 'sudo', 'gcc', 'epel-release'])
-                sp.call(
-                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
-                        ctx.obj['vm']['hostname']),
-                     'yum', 'install', '-y', 'python-pip'])
-                sp.call(
-                    ['sudo', 'chroot', '/var/lib/lxc/{}/rootfs'.format(
-                        ctx.obj['vm']['hostname']),
-                     'pip', 'install', '--upgrade', 'pip'])
-
+        if 'provision' in ctx.obj['vm']:
             utils.ansible_playbook(
-                'localhost', playbook_content=PLAYBOOK_UP.substitute(
-                    hostname=ctx.obj['vm']['hostname'],
-                    hostnames=' '.join(ctx.obj['vm']['hostnames']),
-                    ip=utils.random_unused_ip(), user=os.environ['USER']))
-            sp.call(['sudo', 'service', 'lxc-net', 'restart'])
-            sp.call(
-                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
-
-            if 'provision' in ctx.obj['vm']:
-                utils.ansible_playbook(
-                    ctx.obj['vm']['hostname'],
-                    ctx.obj['vm']['provision']['ansible']['playbook'],
-                    extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
-        else:
-            sp.call(
-                ['sudo', 'lxc-start', '--name', ctx.obj['vm']['hostname']])
-
-        if not ctx.obj['nopasswd_sudoer']:
-            # Remove nopasswd user from sudoers
+                ctx.obj['vm']['hostname'],
+                ctx.obj['vm']['provision']['ansible']['playbook'],
+                extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'))
+    else:
+        if info['status'].lower() == 'stopped':
+            sp.call(['lxc', 'start', ctx.obj['vm']['name']])
             utils.ansible(
-                'localhost', 'lineinfile',
-                'dest=/etc/sudoers line="{} ALL=(ALL) NOPASSWD:ALL"'
-                ' state=absent'.format(os.environ['USER']))
-
-@click.command()
-def ls():
-    cmd = ['sudo', 'lxc-ls']
-    if utils.os_release() != '12.04':
-        cmd += ['--fancy']
-    sp.call(cmd)
+                'localhost',
+                'lineinfile',
+                'dest=/etc/hosts line="{ip} {hostnames}"'.format(
+                    ip=utils.ip(ctx.obj['vm']['name']),
+                    hostnames=' '.join(ctx.obj['vm']['hostnames'])))
+        else:
+            click.echo('Container already Running')
 
 
 @click.command()
 @click.pass_context
 def halt(ctx):
-    sp.call(
-        ['sudo', 'lxc-stop', '--name', ctx.obj['vm']['hostname'], '--nokill'])
-
-
-PLAYBOOK_DESTROY = string.Template('''
----
-- hosts: all
-  become: yes
-  tasks:
-    - lineinfile: dest=/etc/hosts regexp="\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3} ${hostnames}" state=absent
-    - lineinfile: dest=/etc/dnsmasq.d/lxc regexp="dhcp-host=${hostname},\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}" state=absent
-    - service: name=lxc-net state=restarted
-''')
+    sp.call(['lxc', 'stop', ctx.obj['vm']['name']])
 
 
 @click.command()
 @click.pass_context
 def destroy(ctx):
+    sp.call(['lxc', 'delete', '--force', ctx.obj['vm']['name']])
     sp.call(
         ['ssh-keygen', '-f', os.path.expanduser('~/.ssh/known_hosts'),
          '-R', ctx.obj['vm']['hostname']])
-    utils.ansible_playbook(
-        'localhost', playbook_content=PLAYBOOK_DESTROY.substitute(
-            hostname=ctx.obj['vm']['hostname'],
+    utils.ansible(
+        'localhost',
+        'lineinfile',
+        'dest=/etc/hosts regexp="\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}}\.\d{{1,3}} {hostnames}"'
+        ' state=absent'.format(
             hostnames=' '.join(ctx.obj['vm']['hostnames'])))
-    sp.call(
-        ['sudo', 'lxc-destroy', '--force',
-         '--name', ctx.obj['vm']['hostname']])
 
 
 @click.command()
@@ -209,23 +125,14 @@ def provision(ctx, tags):
             extra_vars=ctx.obj['vm']['provision']['ansible'].get('extra_vars'),
             tags=tags)
     else:
-        click.secho(
-            'Nothing to be done', fg='blue')
-
-
-@click.command()
-@click.pass_context
-def status(ctx):
-    sp.call(
-        ['sudo', 'lxc-info', '--name', ctx.obj['vm']['hostname']])
+        click.secho('Nothing to be done', fg='blue')
 
 
 @click.command()
 @click.argument('hostname')
 def init(hostname):
     lxcwfile = yaml.dump(
-        dict([('nopasswd_sudoer', False),
-              ('vm',
+        dict([('vm',
                dict([('box',
                       dict([('distro', utils.os_distro()),
                             ('release', utils.os_release())])),
@@ -246,9 +153,7 @@ def init(hostname):
 cli.add_command(destroy)
 cli.add_command(init)
 cli.add_command(halt)
-cli.add_command(ls)
 cli.add_command(provision)
-cli.add_command(status)
 cli.add_command(ssh)
 cli.add_command(ssh_copy_id, 'ssh-copy-id')
 cli.add_command(up)

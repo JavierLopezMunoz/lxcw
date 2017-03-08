@@ -4,12 +4,29 @@ import random
 import socket
 import subprocess as sp
 import tempfile
+import time
 
 import click
 
+
+def info(name):
+    for info in json.loads(
+            sp.check_output(['lxc', 'list', '--format', 'json'])):
+        if info['name'] == name:
+            return info
+    else:
+        return None
+
 def ip(name):
-    return sp.check_output([
-        'sudo', 'lxc-info', '--name', name, '-i']).strip().split()[1]
+    _info = info(name)
+    if _info:
+        for iteration in range(10):
+            for address in _info['state']['network']['eth0']['addresses']:
+                if address['family'] == 'inet':
+                    return address['address']
+            time.sleep(1)
+            _info = info(name)
+    raise Exception('No ip4 found')
 
 
 def os_distro():
@@ -49,7 +66,7 @@ def ansible_playbook(host, playbook=None, playbook_content=None,
 
 
 def random_unused_ip():
-    for iteration in xrange(100, 256):
+    for iteration in range(100, 256):
         ip = '10.0.3.{}'.format(random.randint(100, 256))
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
