@@ -68,12 +68,18 @@ def up(ctx):
                  'path=/home/ubuntu'])
 
         sp.call(['lxc', 'start', ctx.obj['vm']['name']])
+        sp.call(['lxc', 'exec', ctx.obj['vm']['name'], '--',
+                 '/usr/bin/apt-get install -y {}'.format(' '.join([
+                     'python-pip', 'python-dev']))])
+        sp.call(['lxc', 'exec', ctx.obj['vm']['name'], '--',
+                 '/usr/sbin/locale-gen es_ES.UTF-8'])
         utils.ansible(
             'localhost',
             'lineinfile',
             'dest=/etc/hosts line="{ip} {hostnames}"'.format(
                 ip=utils.ip(ctx.obj['vm']['name']),
                 hostnames=' '.join(ctx.obj['vm']['hostnames'])))
+
 
         if 'provision' in ctx.obj['vm']:
             utils.ansible_playbook(
